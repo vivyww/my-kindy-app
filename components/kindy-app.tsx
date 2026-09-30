@@ -1,16 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import type { AttendanceStatus, Student } from "@/lib/data/types";
+import type { AttendanceStatus, MealStatus, MealType, ReadingRecord, Student } from "@/lib/data/types";
 import { formatDate, localDateString } from "@/lib/data/types";
 import { listAttendance, saveAttendance } from "@/lib/data/attendance";
+import { listMeals, saveMeal } from "@/lib/data/meals";
+import { listReading, saveReading } from "@/lib/data/reading";
 import { createStudent, deleteStudent, listStudents, updateStudent, type StudentInput } from "@/lib/data/students";
 import { createClient } from "@/lib/supabase/client";
 
-type Section = "students" | "attendance";
+type Section = "dashboard" | "students" | "attendance" | "meals" | "reading";
 const sections: { id: Section; label: string; icon: string; hint: string }[] = [
+  { id: "dashboard", label: "Dashboard", icon: "⌂", hint: "Your bright day" },
   { id: "students", label: "Students", icon: "♧", hint: "Class roster" },
   { id: "attendance", label: "Attendance", icon: "✓", hint: "Daily check-in" },
+  { id: "meals", label: "Meals", icon: "⌁", hint: "Breakfast & lunch" },
+  { id: "reading", label: "Reading", icon: "▤", hint: "Storytime" },
 ];
 const attendanceOptions: { value: AttendanceStatus; label: string; short: string }[] = [
   { value: "present", label: "Present", short: "P" },
@@ -20,18 +25,26 @@ const attendanceOptions: { value: AttendanceStatus; label: string; short: string
 ];
 
 const initialForm: StudentInput = { name: "", age: 5, group_name: "K1-A", notes: "" };
+const mealOptions: { value: MealStatus; label: string; icon: string }[] = [
+  { value: "completed", label: "Ate well", icon: "✓" },
+  { value: "partial", label: "Some", icon: "½" },
+  { value: "skipped", label: "Skipped", icon: "–" },
+];
 
 export function KindyApp() {
-  const [section, setSection] = useState<Section>("students");
+  const [section, setSection] = useState<Section>("dashboard");
   const [menuOpen, setMenuOpen] = useState(false);
   const [date, setDate] = useState(localDateString());
   const [students, setStudents] = useState<Student[]>([]);
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
+  const [meals, setMeals] = useState<Record<string, Partial<Record<MealType, MealStatus>>>>({});
+  const [reading, setReading] = useState<Record<string, ReadingRecord>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [savingStudent, setSavingStudent] = useState(false);
   const [savingAttendance, setSavingAttendance] = useState<string | null>(null);
+  const [savingRecord, setSavingRecord] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Student | null>(null);
   const [form, setForm] = useState<StudentInput>(initialForm);
@@ -46,17 +59,27 @@ export function KindyApp() {
     }
     setLoading(true);
     setError("");
-    const [studentResult, attendanceResult] = await Promise.all([
+    const [studentResult, attendanceResult, mealResult, readingResult] = await Promise.all([
       listStudents(client),
       listAttendance(client, date),
+      listMeals(client, date),
+      listReading(client, date),
     ]);
-    if (studentResult.error || attendanceResult.error) {
-      setError(studentResult.error?.message ?? attendanceResult.error?.message ?? "Couldn't load classroom data.");
+    if (studentResult.error || attendanceResult.error || mealResult.error || readingResult.error) {
+      setError(studentResult.error?.message ?? attendanceResult.error?.message ?? mealResult.error?.message ?? readingResult.error?.message ?? "Couldn't load classroom data.");
       setLoading(false);
       return;
     }
-    setStudents((studentResult.data ?? []) as Student[]);
+    const listedStudents = (studentResult.data ?? []) as Student[];
+    setStudents(listedStudents);
     setAttendance(Object.fromEntries((attendanceResult.data ?? []).map((record) => [record.student_id, record.status as AttendanceStatus])));
+    const mealState: Record<string, Partial<Record<MealType, MealStatus>>> = {};
+    for (const record of mealResult.data ?? []) {
+      mealState[record.student_id] ??= {};
+      mealState[record.student_id][record.meal_type as MealType] = record.status as MealStatus;
+    }
+    setMeals(mealState);
+    setReading(Object.fromEntries((readingResult.data ?? []).map((record) => [record.student_id, record as ReadingRecord])));
     setLoading(false);
   }, [client, date]);
 
@@ -126,6 +149,38 @@ export function KindyApp() {
     }
     setAttendance((current) => ({ ...current, [student.id]: status }));
     setNotice(`${student.name}: ${status}.`);
+    await load();
+  }
+
+  async function markMeal(student: Student, mealType: MealType, status: MealStatus) {
+    if (!client) return;
+    const key = `${student.id}-${mealType}`;
+    setSavingRecord(key);
+    setError("");
+    const result = await saveMeal(client, student.id, date, mealType, status);
+    setSavingRecord(null);
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+    setMeals((current) => ({ ...current, [student.id]: { ...current[student.id], [mealType]: status } }));
+    setNotice(`${student.name}’s ${mealType} saved as ${status}.`);
+    await load();
+  }
+
+  async function markReading(student: Student, completed: boolean) {
+    if (!client) return;
+    setSavingRecord(student.id);
+    setError("");
+    const result = await saveReading(client, student.id, date, completed);
+    setSavingRecord(null);
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+    setReading((current) => ({ ...current, [student.id]: result.data as ReadingRecord }));
+    setNotice(`${student.name}’s reading lesson saved.`);
+    await load();
   }
 
   function moveDate(days: number) {
@@ -136,15 +191,20 @@ export function KindyApp() {
 
   const markedCount = students.filter((student) => attendance[student.id]).length;
   const presentCount = students.filter((student) => attendance[student.id] === "present" || attendance[student.id] === "late").length;
+  const mealCount = Object.values(meals).reduce((count, studentMeals) => count + Object.keys(studentMeals).length, 0);
+  const readingCount = Object.keys(reading).length;
+  const sectionTitle = { dashboard: "Dashboard", students: "Students", attendance: "Attendance", meals: "Meals", reading: "Reading" }[section];
+  const heading = { dashboard: "Every little detail, in one bright view.", students: "A little hello to every learner.", attendance: "Who’s here today?", meals: "A happy tummy makes a happy day.", reading: "Make a little room for storytime." }[section];
+  const subtitle = { dashboard: "A kind, clear look at today and the week so far.", students: "Keep your classroom crew and their little details in one happy place.", attendance: "Take attendance at a glance. Your changes save as you go.", meals: "Track breakfast and lunch for every little learner.", reading: "Log each child’s 30-minute reading lesson." }[section];
 
   return (
     <div className="app-frame">
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
-        <a className="brand" href="#home" onClick={(event) => { event.preventDefault(); setSection("students"); setMenuOpen(false); }}>
+        <a className="brand" href="#home" onClick={(event) => { event.preventDefault(); setSection("dashboard"); setMenuOpen(false); }}>
           <span className="brand-mark">m</span>
           <span><strong>little day</strong><small>kindergarten</small></span>
         </a>
-        <div className="class-card"><span className="class-dot" /><span><strong>Sunshine class</strong><small>K1-A · 5 students</small></span><span className="class-chevron">⌄</span></div>
+        <div className="class-card"><span className="class-dot" /><span><strong>Sunshine class</strong><small>{new Set(students.map((student) => student.group_name)).size} groups · {students.length} learners</small></span><span className="class-chevron">⌄</span></div>
         <p className="nav-label">CLASSROOM</p>
         <nav className="main-nav" aria-label="Classroom">
           {sections.map((item) => (
@@ -160,24 +220,24 @@ export function KindyApp() {
       <main className="main-content">
         <header className="topbar">
           <button className="mobile-menu" aria-label="Open navigation" onClick={() => setMenuOpen((open) => !open)}>☰</button>
-          <div className="breadcrumbs"><span>Classroom</span><span className="crumb-slash">/</span><strong>{section === "students" ? "Students" : "Attendance"}</strong></div>
-          <div className="topbar-actions"><span className="today-chip"><span className="online-dot" />Today, {formatDate(localDateString(), { month: "short", day: "numeric" })}</span><button className="avatar-button" aria-label="Teacher profile">T</button></div>
+          <div className="breadcrumbs"><span>Classroom</span><span className="crumb-slash">/</span><strong>{sectionTitle}</strong></div>
+          <div className="topbar-actions"><span className="today-chip"><span className="online-dot" />Today, {formatDate(localDateString(), { month: "short", day: "numeric" })}</span><span className="avatar-button" aria-hidden="true">T</span></div>
         </header>
 
         <div className="page-wrap">
           <div className="page-heading-row">
             <div>
-              <p className="eyebrow">SUNSHINE CLASS <span>·</span> {section === "students" ? "ROSTER" : "DAILY CHECK-IN"}</p>
-              <h1>{section === "students" ? "A little hello to every learner." : "Who’s here today?"}</h1>
-              <p className="page-subtitle">{section === "students" ? "Keep your classroom crew and their little details in one happy place." : "Take attendance at a glance. Your changes save as you go."}</p>
+              <p className="eyebrow">SUNSHINE CLASS <span>·</span> {section === "dashboard" ? "DAILY OVERVIEW" : section === "students" ? "ROSTER" : section === "attendance" ? "DAILY CHECK-IN" : section.toUpperCase()}</p>
+              <h1>{heading}</h1>
+              <p className="page-subtitle">{subtitle}</p>
             </div>
-            {section === "students" ? <button className="primary-button" onClick={beginAdd}><span>＋</span> Add student</button> : <div className="date-picker"><button aria-label="Previous day" onClick={() => moveDate(-1)}>‹</button><span>{formatDate(date)}</span><button aria-label="Next day" onClick={() => moveDate(1)}>›</button><input aria-label="Attendance date" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>}
+            {section === "students" ? <button className="primary-button" onClick={beginAdd}><span>＋</span> Add student</button> : <div className="date-picker"><button aria-label="Previous day" onClick={() => moveDate(-1)}>‹</button><span>{formatDate(date)}</span><button aria-label="Next day" onClick={() => moveDate(1)}>›</button><span className="date-calendar" aria-hidden="true">▦</span><input aria-label="Choose report date" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>}
           </div>
 
           <div className="stats-row">
             <div className="stat-card"><span className="stat-icon stat-lavender">♧</span><span><small>Little learners</small><strong>{students.length.toString().padStart(2, "0")}</strong></span></div>
-            <div className="stat-card"><span className="stat-icon stat-peach">☀</span><span><small>{section === "students" ? "Groups together" : "Marked today"}</small><strong>{section === "students" ? new Set(students.map((student) => student.group_name)).size.toString().padStart(2, "0") : `${markedCount}/${students.length}`}</strong></span></div>
-            <div className="stat-card"><span className="stat-icon stat-mint">✓</span><span><small>{section === "students" ? "Age 5 & 6" : "Here at school"}</small><strong>{section === "students" ? students.filter((student) => student.age === 5 || student.age === 6).length.toString().padStart(2, "0") : presentCount.toString().padStart(2, "0")}</strong></span></div>
+            <div className="stat-card"><span className="stat-icon stat-peach">☀</span><span><small>{section === "students" ? "Groups together" : section === "attendance" ? "Marked today" : section === "meals" ? "Meal choices" : section === "reading" ? "Lessons logged" : "Here today"}</small><strong>{section === "students" ? new Set(students.map((student) => student.group_name)).size.toString().padStart(2, "0") : section === "attendance" ? `${markedCount}/${students.length}` : section === "meals" ? `${mealCount}/${students.length * 2}` : section === "reading" ? `${readingCount}/${students.length}` : `${presentCount}/${students.length}`}</strong></span></div>
+            <div className="stat-card"><span className="stat-icon stat-mint">✓</span><span><small>{section === "students" ? "Age 5 & 6" : section === "attendance" ? "Here at school" : section === "meals" ? "Little learners" : section === "reading" ? "Completed" : "Here today"}</small><strong>{section === "students" ? students.filter((student) => student.age === 5 || student.age === 6).length.toString().padStart(2, "0") : section === "attendance" ? presentCount.toString().padStart(2, "0") : section === "meals" ? new Set(Object.keys(meals)).size.toString().padStart(2, "0") : section === "reading" ? Object.values(reading).filter((lesson) => lesson.status === "completed").length.toString().padStart(2, "0") : presentCount.toString().padStart(2, "0")}</strong></span></div>
           </div>
 
           {!configured && <div className="message-banner message-info"><strong>Connect your classroom first.</strong><span>Pull the project’s Supabase values into <code>.env.local</code> to enable live records.</span></div>}
@@ -185,8 +245,8 @@ export function KindyApp() {
           {notice && !error && <div className="message-banner message-success" role="status">{notice}</div>}
 
           <section className="roster-panel">
-            <div className="panel-header"><div><h2>{section === "students" ? "Your classroom crew" : "Attendance check-in"}</h2><p>{section === "students" ? "A small class, full of big personalities." : formatDate(date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div><span className="panel-count">{section === "students" ? `${students.length} learners` : `${markedCount} of ${students.length} marked`}</span></div>
-            {loading ? <div className="loading-state"><span className="spinner" /> Gathering the class list…</div> : students.length === 0 ? <div className="empty-state"><span className="empty-illustration">✿</span><h3>No learners just yet</h3><p>Add your first student and start your class roster.</p>{section === "students" && configured && <button className="primary-button" onClick={beginAdd}>＋ Add your first student</button>}</div> : section === "students" ? (
+            <div className="panel-header"><div><h2>{section === "dashboard" ? "Today in Sunshine class" : section === "students" ? "Your classroom crew" : section === "attendance" ? "Attendance check-in" : section === "meals" ? "Breakfast & lunch" : "Reading circle"}</h2><p>{section === "students" ? "A small class, full of big personalities." : formatDate(date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div><span className="panel-count">{section === "students" ? `${students.length} learners` : section === "attendance" ? `${markedCount} of ${students.length} marked` : section === "meals" ? `${mealCount} of ${students.length * 2} meals logged` : section === "reading" ? `${readingCount} of ${students.length} lessons logged` : `${students.length} learners`}</span></div>
+            {loading ? <div className="loading-state"><span className="spinner" /> Gathering the class list…</div> : students.length === 0 ? <div className="empty-state"><span className="empty-illustration">✿</span><h3>{configured ? "No learners just yet" : "Class data isn’t connected"}</h3><p>{configured ? "Add your first student and start your class roster." : "Connect the Supabase project to load and save your classroom records."}</p>{(section === "students" || section === "dashboard") && configured && <button className="primary-button" onClick={beginAdd}>＋ Add your first student</button>}</div> : section === "students" ? (
               <div className="student-list" role="list">
                 {students.map((student, index) => <article className="student-row" role="listitem" key={student.id}>
                   <span className={`student-avatar student-avatar-${index % 5}`}>{student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
@@ -195,7 +255,7 @@ export function KindyApp() {
                   <span className="row-actions"><button aria-label={`Edit ${student.name}`} onClick={() => beginEdit(student)}>Edit</button><button className="delete-action" aria-label={`Delete ${student.name}`} onClick={() => void removeStudent(student)}>Remove</button></span>
                 </article>)}
               </div>
-            ) : (
+            ) : section === "attendance" ? (
               <div className="attendance-list" role="list">
                 {students.map((student, index) => <article className="attendance-row" role="listitem" key={student.id}>
                   <span className={`student-avatar student-avatar-${index % 5}`}>{student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
@@ -206,9 +266,48 @@ export function KindyApp() {
                   <span className={`status-label ${attendance[student.id] ? `status-${attendance[student.id]}` : "status-pending"}`}>{savingAttendance === student.id ? "Saving…" : attendance[student.id] ?? "Pending"}</span>
                 </article>)}
               </div>
+            ) : section === "meals" ? (
+              <div className="meal-list" role="list">
+                {students.map((student, index) => <article className="meal-row" role="listitem" key={student.id}>
+                  <span className={`student-avatar student-avatar-${index % 5}`}>{student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
+                  <span className="student-main"><strong>{student.name}</strong><small>{student.group_name} · Age {student.age}</small></span>
+                  {(["breakfast", "lunch"] as MealType[]).map((mealType) => <div className="meal-choice-group" key={mealType} aria-label={`${student.name} ${mealType}`}>
+                    <small className="meal-label">{mealType}</small>
+                    <div className="meal-options">{mealOptions.map((option) => <button key={option.value} className={`meal-choice ${meals[student.id]?.[mealType] === option.value ? `meal-${option.value}` : ""}`} aria-label={`${option.label} for ${mealType}`} aria-pressed={meals[student.id]?.[mealType] === option.value} disabled={!client || savingRecord === `${student.id}-${mealType}`} onClick={() => void markMeal(student, mealType, option.value)}><span>{option.icon}</span><small>{option.label}</small></button>)}</div>
+                  </div>)}
+                </article>)}
+              </div>
+            ) : section === "reading" ? (
+              <div className="reading-list" role="list">
+                {students.map((student, index) => {
+                  const lesson = reading[student.id];
+                  return <article className="reading-row" role="listitem" key={student.id}>
+                    <span className={`student-avatar student-avatar-${index % 5}`}>{student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
+                    <span className="student-main"><strong>{student.name}</strong><small>{student.group_name} · Age {student.age}</small></span>
+                    <span className="reading-duration">{lesson?.duration_minutes ?? 0} <small>min</small></span>
+                    <div className="reading-actions">
+                      <button className={`reading-button ${lesson?.status === "completed" ? "reading-complete" : ""}`} aria-pressed={lesson?.status === "completed"} disabled={!client || savingRecord === student.id} onClick={() => void markReading(student, true)}><span>✓</span> Completed · 30 min</button>
+                      <button className={`reading-button ${lesson?.status === "incomplete" ? "reading-incomplete" : ""}`} aria-pressed={lesson?.status === "incomplete"} disabled={!client || savingRecord === student.id} onClick={() => void markReading(student, false)}><span>○</span> Incomplete</button>
+                    </div>
+                  </article>;
+                })}
+              </div>
+            ) : (
+              <div className="dashboard-grid" role="table" aria-label="Today’s classroom status">
+                <div className="dashboard-head" role="row"><span role="columnheader">Learner</span><span role="columnheader">Attendance</span><span role="columnheader">Breakfast</span><span role="columnheader">Lunch</span><span role="columnheader">Reading</span></div>
+                {students.map((student, index) => <div className="dashboard-row" role="row" key={student.id}>
+                  <span className="dashboard-student" role="cell"><span className={`student-avatar student-avatar-${index % 5}`}>{student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span><strong>{student.name}</strong></span>
+                  <span role="cell"><span className={`dashboard-tag ${attendance[student.id] ? `dashboard-${attendance[student.id]}` : "dashboard-pending"}`}>{attendance[student.id] ?? "Pending"}</span></span>
+                  <span role="cell"><span className={`dashboard-tag ${meals[student.id]?.breakfast ? `dashboard-${meals[student.id].breakfast}` : "dashboard-pending"}`}>{meals[student.id]?.breakfast ?? "Pending"}</span></span>
+                  <span role="cell"><span className={`dashboard-tag ${meals[student.id]?.lunch ? `dashboard-${meals[student.id].lunch}` : "dashboard-pending"}`}>{meals[student.id]?.lunch ?? "Pending"}</span></span>
+                  <span role="cell"><span className={`dashboard-tag ${reading[student.id]?.status === "completed" ? "dashboard-present" : reading[student.id]?.status === "incomplete" ? "dashboard-partial" : "dashboard-pending"}`}>{reading[student.id]?.status === "completed" ? "Done · 30m" : reading[student.id]?.status === "incomplete" ? "Incomplete" : "Pending"}</span></span>
+                </div>)}
+                <div className="dashboard-shortcuts"><span>Ready to log today’s care?</span><button onClick={() => setSection("attendance")}>Take attendance <span>→</span></button><button onClick={() => setSection("meals")}>Log meals <span>→</span></button><button onClick={() => setSection("reading")}>Reading circle <span>→</span></button></div>
+              </div>
             )}
-            <div className="panel-footer"><span><span className="online-dot" />All changes save automatically</span><span>{section === "students" ? "A lovely little class" : `${students.length - markedCount} still to check in`}</span></div>
+            <div className="panel-footer"><span>{configured ? <><span className="online-dot" />All changes save automatically</> : "Waiting for the live classroom connection"}</span><span>{section === "students" ? "A lovely little class" : section === "attendance" ? `${students.length - markedCount} still to check in` : section === "meals" ? `${students.length * 2 - mealCount} meals to log` : section === "reading" ? `${students.length - readingCount} lessons to log` : "A bright day ahead"}</span></div>
           </section>
+
 
           <footer className="page-footer"><span>Made for the little moments that make a big day.</span><span className="footer-flower">✿</span></footer>
         </div>
