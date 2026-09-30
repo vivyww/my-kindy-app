@@ -6,6 +6,7 @@ import { formatDate, localDateString } from "@/lib/data/types";
 import { listAttendance, saveAttendance } from "@/lib/data/attendance";
 import { listMeals, saveMeal } from "@/lib/data/meals";
 import { listReading, saveReading } from "@/lib/data/reading";
+import { listWeekRecords, summarizeWeek, weekRangeForDate, type WeeklySummary } from "@/lib/data/summary";
 import { createStudent, deleteStudent, listStudents, updateStudent, type StudentInput } from "@/lib/data/students";
 import { createClient } from "@/lib/supabase/client";
 
@@ -39,6 +40,7 @@ export function KindyApp() {
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
   const [meals, setMeals] = useState<Record<string, Partial<Record<MealType, MealStatus>>>>({});
   const [reading, setReading] = useState<Record<string, ReadingRecord>>({});
+  const [weekly, setWeekly] = useState<WeeklySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -59,14 +61,16 @@ export function KindyApp() {
     }
     setLoading(true);
     setError("");
-    const [studentResult, attendanceResult, mealResult, readingResult] = await Promise.all([
+    const { start: weekStart, end: weekEnd } = weekRangeForDate(date);
+    const [studentResult, attendanceResult, mealResult, readingResult, weekResult] = await Promise.all([
       listStudents(client),
       listAttendance(client, date),
       listMeals(client, date),
       listReading(client, date),
+      listWeekRecords(client, weekStart, weekEnd),
     ]);
-    if (studentResult.error || attendanceResult.error || mealResult.error || readingResult.error) {
-      setError(studentResult.error?.message ?? attendanceResult.error?.message ?? mealResult.error?.message ?? readingResult.error?.message ?? "Couldn't load classroom data.");
+    if (studentResult.error || attendanceResult.error || mealResult.error || readingResult.error || weekResult.attendance.error || weekResult.meals.error || weekResult.reading.error) {
+      setError(studentResult.error?.message ?? attendanceResult.error?.message ?? mealResult.error?.message ?? readingResult.error?.message ?? weekResult.attendance.error?.message ?? weekResult.meals.error?.message ?? weekResult.reading.error?.message ?? "Couldn't load classroom data.");
       setLoading(false);
       return;
     }
@@ -80,6 +84,12 @@ export function KindyApp() {
     }
     setMeals(mealState);
     setReading(Object.fromEntries((readingResult.data ?? []).map((record) => [record.student_id, record as ReadingRecord])));
+    setWeekly(summarizeWeek(
+      listedStudents,
+      (weekResult.attendance.data ?? []) as unknown as Parameters<typeof summarizeWeek>[1],
+      (weekResult.meals.data ?? []) as unknown as Parameters<typeof summarizeWeek>[2],
+      (weekResult.reading.data ?? []) as unknown as Parameters<typeof summarizeWeek>[3],
+    ));
     setLoading(false);
   }, [client, date]);
 
@@ -237,7 +247,7 @@ export function KindyApp() {
           <div className="stats-row">
             <div className="stat-card"><span className="stat-icon stat-lavender">♧</span><span><small>Little learners</small><strong>{students.length.toString().padStart(2, "0")}</strong></span></div>
             <div className="stat-card"><span className="stat-icon stat-peach">☀</span><span><small>{section === "students" ? "Groups together" : section === "attendance" ? "Marked today" : section === "meals" ? "Meal choices" : section === "reading" ? "Lessons logged" : "Here today"}</small><strong>{section === "students" ? new Set(students.map((student) => student.group_name)).size.toString().padStart(2, "0") : section === "attendance" ? `${markedCount}/${students.length}` : section === "meals" ? `${mealCount}/${students.length * 2}` : section === "reading" ? `${readingCount}/${students.length}` : `${presentCount}/${students.length}`}</strong></span></div>
-            <div className="stat-card"><span className="stat-icon stat-mint">✓</span><span><small>{section === "students" ? "Age 5 & 6" : section === "attendance" ? "Here at school" : section === "meals" ? "Little learners" : section === "reading" ? "Completed" : "Here today"}</small><strong>{section === "students" ? students.filter((student) => student.age === 5 || student.age === 6).length.toString().padStart(2, "0") : section === "attendance" ? presentCount.toString().padStart(2, "0") : section === "meals" ? new Set(Object.keys(meals)).size.toString().padStart(2, "0") : section === "reading" ? Object.values(reading).filter((lesson) => lesson.status === "completed").length.toString().padStart(2, "0") : presentCount.toString().padStart(2, "0")}</strong></span></div>
+            <div className="stat-card"><span className="stat-icon stat-mint">✓</span><span><small>{section === "students" ? "Age 5 & 6" : section === "attendance" ? "Here at school" : section === "meals" ? "Little learners" : section === "reading" ? "Completed" : "Weekly attendance"}</small><strong>{section === "students" ? students.filter((student) => student.age === 5 || student.age === 6).length.toString().padStart(2, "0") : section === "attendance" ? presentCount.toString().padStart(2, "0") : section === "meals" ? new Set(Object.keys(meals)).size.toString().padStart(2, "0") : section === "reading" ? Object.values(reading).filter((lesson) => lesson.status === "completed").length.toString().padStart(2, "0") : weekly?.attendanceRate === null || weekly?.attendanceRate === undefined ? "—" : `${weekly.attendanceRate}%`}</strong></span></div>
           </div>
 
           {!configured && <div className="message-banner message-info"><strong>Connect your classroom first.</strong><span>Pull the project’s Supabase values into <code>.env.local</code> to enable live records.</span></div>}
@@ -308,6 +318,16 @@ export function KindyApp() {
             <div className="panel-footer"><span>{configured ? <><span className="online-dot" />All changes save automatically</> : "Waiting for the live classroom connection"}</span><span>{section === "students" ? "A lovely little class" : section === "attendance" ? `${students.length - markedCount} still to check in` : section === "meals" ? `${students.length * 2 - mealCount} meals to log` : section === "reading" ? `${students.length - readingCount} lessons to log` : "A bright day ahead"}</span></div>
           </section>
 
+          {section === "dashboard" && <section className="weekly-section" aria-labelledby="weekly-title">
+            <div className="weekly-heading"><div><p className="eyebrow">WEEK OF {formatDate(weekRangeForDate(date).start, { month: "short", day: "numeric" }).toUpperCase()} <span>TO</span> {formatDate(date, { month: "short", day: "numeric" }).toUpperCase()}</p><h3 id="weekly-title">Little wins this week</h3><p>Weekly completion so far, based on the days each child was here.</p></div><span className="weekly-sun">☼</span></div>
+            <div className="weekly-metrics">
+              <div className="weekly-metric"><span>Attendance</span><strong>{weekly?.attendanceRate === null || weekly?.attendanceRate === undefined ? "—" : `${weekly.attendanceRate}%`}</strong><small>{weekly?.presentDays ?? 0} of {weekly?.attendanceDays ?? 0} attendance marks</small><div className="metric-track"><i style={{ width: `${weekly?.attendanceRate ?? 0}%` }} /></div></div>
+              <div className="weekly-metric"><span>Meals completed</span><strong>{weekly?.mealRate === null || weekly?.mealRate === undefined ? "—" : `${weekly.mealRate}%`}</strong><small>{weekly?.completedMeals ?? 0} of {weekly?.expectedMeals ?? 0} expected meals</small><div className="metric-track metric-track-peach"><i style={{ width: `${weekly?.mealRate ?? 0}%` }} /></div></div>
+              <div className="weekly-metric"><span>Reading lessons</span><strong>{weekly?.readingRate === null || weekly?.readingRate === undefined ? "—" : `${weekly.readingRate}%`}</strong><small>{weekly?.completedLessons ?? 0} of {weekly?.expectedLessons ?? 0} expected lessons</small><div className="metric-track metric-track-green"><i style={{ width: `${weekly?.readingRate ?? 0}%` }} /></div></div>
+            </div>
+            <div className="at-risk-heading"><div><h4>Extra little check-ins</h4><p>Students below this week’s classroom goals</p></div><span>{weekly?.atRiskStudents.length ?? 0} to check in</span></div>
+            {(weekly?.atRiskStudents.length ?? 0) > 0 ? <div className="at-risk-list">{weekly?.atRiskStudents.map((item, index) => <div className="at-risk-row" key={item.student.id}><span className={`student-avatar student-avatar-${index % 5}`}>{item.student.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span><strong>{item.student.name}</strong><span>{item.reasons.join(" · ")}</span></div>)}</div> : <div className="all-on-track">{weekly?.attendanceDays ? "A lovely week so far — everyone is on track." : "Log this week’s attendance and little routines to see your summary."}</div>}
+          </section>}
 
           <footer className="page-footer"><span>Made for the little moments that make a big day.</span><span className="footer-flower">✿</span></footer>
         </div>

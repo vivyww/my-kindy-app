@@ -169,6 +169,35 @@ h1 { color: #2c3951; font-family: Georgia, "Times New Roman", serif; font-size: 
 .dashboard-shortcuts button { background: #fff; border: 1px solid #ebeaf2; border-radius: 7px; color: #7466b5; font-size: 9px; padding: 7px 9px; }
 .dashboard-shortcuts button:hover { background: #f7f5fc; }
 .dashboard-shortcuts button span { font-size: 12px; margin-left: 5px; }
+.weekly-section { background: #fff; border: 1px solid #eceef3; border-radius: 13px; margin-top: 17px; overflow: hidden; padding: 21px; }
+.weekly-heading { align-items: flex-start; display: flex; justify-content: space-between; }
+.weekly-heading .eyebrow { margin-bottom: 8px; }
+.weekly-heading .eyebrow span { padding: 0 2px; }
+.weekly-heading h3 { color: #38455d; font-family: Georgia, "Times New Roman", serif; font-size: 20px; font-weight: 400; margin: 0 0 5px; }
+.weekly-heading p:last-child { color: #9ba3b0; font-size: 10px; margin: 0; }
+.weekly-sun { align-items: center; background: #fff6e7; border-radius: 12px; color: #d8a45d; display: flex; font-size: 23px; height: 43px; justify-content: center; width: 43px; }
+.weekly-metrics { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 20px 0; }
+.weekly-metric { background: #fbfbfd; border: 1px solid #f1f2f5; border-radius: 10px; display: grid; gap: 6px; padding: 13px; }
+.weekly-metric > span { color: #7d8798; font-size: 9px; }
+.weekly-metric strong { color: #37435a; font-family: Georgia, "Times New Roman", serif; font-size: 23px; font-weight: 400; }
+.weekly-metric > small { color: #a0a7b2; font-size: 9px; }
+.metric-track { background: #ebe8f6; border-radius: 99px; height: 4px; margin-top: 5px; overflow: hidden; }
+.metric-track i { background: #8d7ccc; border-radius: 99px; display: block; height: 100%; }
+.metric-track-peach { background: #f8ece4; }
+.metric-track-peach i { background: #d89a6f; }
+.metric-track-green { background: #e7f1eb; }
+.metric-track-green i { background: #70a98b; }
+.at-risk-heading { align-items: center; border-top: 1px solid var(--line); display: flex; justify-content: space-between; padding-top: 15px; }
+.at-risk-heading h4 { color: #4b566a; font-family: Georgia, "Times New Roman", serif; font-size: 14px; font-weight: 400; margin: 0 0 4px; }
+.at-risk-heading p { color: #a1a8b3; font-size: 9px; margin: 0; }
+.at-risk-heading > span { background: #fbebed; border-radius: 99px; color: #bc6875; font-size: 9px; padding: 6px 9px; }
+.at-risk-list { display: grid; margin-top: 10px; }
+.at-risk-row { align-items: center; border-bottom: 1px solid #f3f4f6; display: flex; gap: 9px; min-height: 52px; }
+.at-risk-row:last-child { border-bottom: 0; }
+.at-risk-row .student-avatar { flex-basis: 31px; height: 31px; }
+.at-risk-row strong { color: #526075; font-size: 10px; min-width: 120px; }
+.at-risk-row > span:last-child { color: #a3767b; font-size: 9px; }
+.all-on-track { background: #f3f8f4; border-radius: 8px; color: #6c9d80; font-size: 10px; margin-top: 11px; padding: 11px; }
 .panel-footer { align-items: center; background: #fbfbfd; border-top: 1px solid var(--line); color: #a0a7b3; display: flex; font-size: 9px; justify-content: space-between; min-height: 41px; padding: 0 20px; }
 .panel-footer > span:first-child { align-items: center; display: flex; gap: 7px; }
 .loading-state { align-items: center; color: #919aaa; display: flex; font-size: 11px; gap: 10px; justify-content: center; min-height: 170px; }
