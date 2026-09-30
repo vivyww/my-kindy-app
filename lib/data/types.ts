@@ -2,11 +2,26 @@ export type AttendanceStatus = "present" | "absent" | "late" | "excused";
 
 export type Student = {
   id: string;
+  organization_id: string;
   name: string;
   age: 5 | 6;
   group_name: string;
   notes: string | null;
   created_at: string;
+};
+
+export type Workspace = {
+  workspace_id: string;
+  workspace_name: string;
+  is_demo: boolean;
+  role: "owner" | "admin" | "teacher" | "demo";
+};
+
+export type WorkspaceMember = {
+  user_id: string;
+  email: string;
+  role: "owner" | "admin" | "teacher";
+  joined_at: string;
 };
 
 export type AttendanceRecord = {

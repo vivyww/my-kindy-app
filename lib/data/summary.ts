@@ -35,9 +35,9 @@ export function weekRangeForDate(date: string) {
   return { start: start.toISOString().slice(0, 10), end: date };
 }
 
-export async function listWeekRecords(client: SupabaseClient, start: string, end: string) {
+export async function listWeekRecords(client: SupabaseClient, organizationId: string, start: string, end: string) {
   const range = (table: "attendance" | "meal_records" | "reading_lessons", columns: string) =>
-    client.from(table).select(columns).gte("record_date", start).lte("record_date", end);
+    client.from(table).select(columns).eq("organization_id", organizationId).gte("record_date", start).lte("record_date", end);
   const [attendance, meals, reading] = await Promise.all([
     range("attendance", "student_id,status"),
     range("meal_records", "student_id,status"),
