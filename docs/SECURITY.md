@@ -1,20 +1,25 @@
 # Security
 
 ## Secret Handling
-- Supabase service-role key: server-side only, never in client code
-- Supabase anon key: safe for client (public, read-only intent)
-- `.env` committed to `.gitignore`, never committed to repo
+- Supabase service-role keys stay server-side and are never used by the MCP endpoint.
+- The Supabase anon key is public; the MCP server uses it with the caller's verified OAuth access token.
+- `.env` files remain ignored and are never committed.
 
 ## Permission Model
-- **v1 (demo-first):** permissive RLS — all reads/writes open, no login required. Seed data renders for anonymous visitors.
-- **Lock-down sprint:** RLS enforces `auth.uid() = user_id` on every table. Teachers see only their own students. Anonymous access blocked.
-- Agent inherits the calling user's permissions — no elevated access.
+- The demo workspace remains readable without login; it is not writable.
+- Private workspace data is readable and writable only to authenticated workspace members through the organization membership policies in `0002_team_workspaces.sql`.
+- MCP requests require a Supabase OAuth access token. The server validates the token with Supabase Auth and forwards that same token to PostgREST; it never uses a service-role key.
+- MCP tools list private workspaces only, omit student notes, and depend on the same workspace RLS as the app.
+- MCP writes are limited to attendance, meals, and reading records for today or the preceding seven days. Database triggers append changes to `audit_logs`; there are no delete tools.
 
 ## Approved-Tools Rule
-Agent calls named functions only: `summarize_daily_records`, `flag_at_risk_students`, `suggest_reading_level`. No raw SQL, no `run_any` / `send_any` patterns.
+Agent calls named functions only: `list_workspaces`, `list_students`, `summarize_daily_records`, `flag_at_risk_students`, `mark_attendance`, `record_meal`, and `record_reading`. No raw SQL, no `run_any` / `send_any` patterns.
 
 ## Audit Principle
-Every meaningful write (attendance mark, meal update, reading log, student CRUD) writes to `audit_logs` with action, entity type, entity ID, and details. Every agent action is logged the same way.
+Every meaningful write (attendance mark, meal update, reading log, student CRUD) writes to `audit_logs` with action, entity type, entity ID, details, user ID, and timestamp through database triggers or approved RPCs.
 
-## Honesty Note
-If per-user RLS or auth setup is beyond the builder's current skill, stop and get a human to verify the policies before exposing real student data. Do not mark security "done" until policies are tested with two different users.
+## OAuth Setup
+Supabase OAuth Server and dynamic client registration must be enabled in the Supabase dashboard, with `/oauth/consent` set as the authorization path. MCP tools inherit the calling user's workspace membership and row-level security. Never mark the ChatGPT connection ready until the OAuth flow succeeds and the endpoint returns only the signed-in user's private workspaces.
+
+## Verification Note
+Before broad rollout with real student data, verify cross-workspace isolation with two accounts and confirm the OAuth app can be revoked from the user's Supabase authorizations.

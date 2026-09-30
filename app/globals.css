@@ -633,3 +633,31 @@ h1 { color: #342c44; font-size: clamp(28px, 3vw, 39px); font-weight: 800; letter
   .team-member-copy strong { font-size: 9px; }
   .remove-member { letter-spacing: -.2px; }
 }
+
+.oauth-shell { align-items: center; background: radial-gradient(ellipse at 50% 0%, #f4eaff 0, var(--canvas) 58%); display: flex; justify-content: center; min-height: 100dvh; padding: 28px 16px; }
+.oauth-card { background: var(--white); border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); max-width: 520px; padding: 34px; width: 100%; }
+.oauth-brand { align-items: center; display: flex; gap: 11px; margin-bottom: 31px; }
+.oauth-brand strong, .oauth-brand small { display: block; }
+.oauth-brand strong { font-size: 16px; }
+.oauth-brand small { color: var(--muted); font-size: 9px; letter-spacing: 1.5px; margin-top: 3px; }
+.oauth-mark { align-items: center; background: var(--purple-pale); border-radius: 13px; color: var(--purple); display: inline-flex; font-family: Georgia, serif; font-size: 25px; font-weight: 700; height: 40px; justify-content: center; transform: rotate(-7deg); width: 40px; }
+.oauth-card .eyebrow { margin: 0 0 9px; }
+.oauth-card h1 { font-size: clamp(27px, 7vw, 34px); letter-spacing: -1.3px; margin: 0; }
+.oauth-copy { color: var(--muted); line-height: 1.65; margin: 13px 0 20px; }
+.oauth-form { display: grid; gap: 15px; }
+.oauth-form .auth-submit { width: 100%; }
+.oauth-permissions { background: #fbf9fd; border: 1px solid var(--line); border-radius: 15px; margin: 20px 0; padding: 19px; }
+.oauth-permissions h2 { font-size: 14px; margin: 0 0 10px; }
+.oauth-permissions ul { color: var(--ink); line-height: 1.55; margin: 0; padding-left: 18px; }
+.oauth-permissions li + li { margin-top: 8px; }
+.oauth-permissions p { border-top: 1px solid var(--line); color: var(--muted); line-height: 1.55; margin: 14px 0 0; padding-top: 12px; }
+.oauth-permissions small { color: var(--muted); display: block; font-size: 10px; line-height: 1.5; margin-top: 11px; overflow-wrap: anywhere; }
+.oauth-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+.oauth-actions button { min-height: 43px; }
+.oauth-footnote { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 17px 0 0; }
+.oauth-footnote a { color: var(--purple-dark); font-weight: 650; }
+@media (max-width: 480px) {
+  .oauth-card { border-radius: 18px; padding: 25px 20px; }
+  .oauth-actions { flex-direction: column-reverse; }
+  .oauth-actions button { width: 100%; }
+}
